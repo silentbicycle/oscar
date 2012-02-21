@@ -14,16 +14,22 @@ typedef struct link {
     pool_id n;                  /* next */
 } link;
 
-static void mark(oscar *p, pool_id id) {
-    link *l = (link *) oscar_get(p, id);
-    if (l == NULL) return;
-    oscar_mark(p, id);
-    if (l->n != 0) mark(p, l->n);
-}
-
 static int mark_it_donny(oscar *p, void *udata) {
     int *zero_is_live = (int *) udata;
-    if (*zero_is_live) mark(p, 0); /* Assume ID 0 is the root. */
+
+    if (*zero_is_live) {
+        pool_id id = 0;         /* assume 0 is the root. */
+        link *n = (link *) oscar_get(p, id);
+        if (n == NULL) return 0;
+        oscar_mark(p, id);
+        id = n->n;
+
+        while (id != 0) {
+            oscar_mark(p, id);
+            n = (link *) oscar_get(p, id);
+            id = n->n;
+        }
+    }
     return 0;
 }
 
@@ -73,12 +79,12 @@ TEST basic_dynamic() {
     for (int i=0; i<count; i++) (void) oscar_alloc(p);
     ASSERT_EQ(1, basic_freed[2]);
 
-    for (int i=0; i<5; i++) basic_freed[i] = 0;
+    for (int i=0; i<count; i++) basic_freed[i] = 0;
 
     zero_is_live = 0;           /* [0] is no longer root, all are garbage */
     oscar_force_gc(p);
 
-    for (int i=0; i<5; i++) {
+    for (int i=0; i<count; i++) {
         ASSERT_EQ(1, basic_freed[i]);
     }
     
