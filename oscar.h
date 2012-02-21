@@ -52,8 +52,8 @@ typedef void *(oscar_memory_cb)(void *p, size_t old_sz,
 /* An oscar_memory_cb that just calls malloc/free/realloc. */
 void *oscar_generic_mem_cb(void *p, size_t old_sz, size_t new_sz, void *udata);
 
-/* Init a fixed-sized garbage-collected pool of as many CELL_SZ-byte cells as will
- * fit inside the BYTES bytes pointed to by MEMORY.
+/* Init a fixed-sized garbage-collected pool of as many CELL_SZ-byte
+ * cells as will fit inside the BYTES bytes pointed to by MEMORY.
  * For the various callbacks, see their typedefs.
  * Return NULL on error, such as if the provided memory in insufficient. */
 oscar *oscar_new_fixed(unsigned int cell_sz, unsigned int bytes, char *memory,
