@@ -86,16 +86,24 @@ oscar *oscar_new_fixed(unsigned int cell_sz, unsigned int bytes, char *memory,
     /* The internal memory is laid out like so:
      * ['oscar' data structure, sizeof(oscar) bytes, 88 or so]
      * [CELL_SZ * COUNT bytes][COUNT/8 bytes of mark bits, rounded up] */
-    unsigned int rem = bytes - sizeof(oscar);
-    unsigned int count = rem / cell_sz;
-    /* Reduce count as necessary to fit mark bits at the end. */
-    while (count * cell_sz + (count / 8 + 1) > rem) count--;
+    unsigned int rem = 0, count = 0;
 
-    if (memory == NULL) return NULL;
+#define FAIL(msg) { fprintf(stderr, msg "\n"); return NULL; }
+    if (cell_sz < sizeof(pool_id)) FAIL("cell_sz is too small");
+    if ((cell_sz % sizeof(void *)) != 0)
+        FAIL("cell_sz must be a multiple of sizeof(void *) due to alignment");
+    if (memory == NULL) FAIL("NULL memory pool");
     /* There needs to be room for at _least_ 1 cell and 1 mark bit
      * (though a one-cell GC pool is pretty useless...). */
-    if (bytes < sizeof(oscar)) return NULL;
-    if (rem < 2*cell_sz) return NULL;
+    rem = bytes - sizeof(oscar);
+    if (bytes < sizeof(oscar) || rem < 2*cell_sz)
+        FAIL("memory pool is too small for GC");
+    if (mark_cb == NULL) FAIL("NULL mark_cb");
+#undef FAIL
+
+    count = rem / cell_sz;
+    /* Reduce count as necessary to fit mark bits at the end. */
+    while (count * cell_sz + (count / 8 + 1) > rem) count--;
 
     return new_pool(cell_sz, count, (oscar *) memory,
         rem, memory + sizeof(oscar),
@@ -113,10 +121,14 @@ oscar *oscar_new(unsigned int cell_sz, unsigned int start_count,
     oscar *p = NULL;
     char *raw = NULL;
     unsigned int raw_sz = cell_sz * start_count + (cell_sz / 8) + 1;
-    if (cell_sz < sizeof(pool_id)) return NULL;
-    if (start_count < 1) return NULL;
-    if (mark_cb == NULL) return NULL;
-    if (mem_cb == NULL) return NULL;
+#define FAIL(msg) { fprintf(stderr, msg "\n"); return NULL; }
+    if (cell_sz < sizeof(pool_id)) FAIL("cell_sz is too small");
+    if ((cell_sz % sizeof(void *)) != 0)
+        FAIL("cell_sz must be a multiple of sizeof(void *) due to alignment");
+    if (start_count < 1) FAIL("bad count");
+    if (mark_cb == NULL) FAIL("NULL mark_cb");
+    if (mem_cb == NULL) FAIL("NULL mem_cb");
+#undef FAIL
 
     p = mem_cb(NULL, 0, sizeof(*p), mem_udata);
     if (p == NULL) goto cleanup;
