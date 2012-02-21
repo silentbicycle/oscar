@@ -25,17 +25,21 @@ static int mark_it_donny(oscar *p, void *udata) {
     return 0;
 }
 
-static int basic_test_freed[] = {0,0,0,0,0};
-
 static void basic_free_hook(oscar *pool, pool_id id, void *udata) {
-    basic_test_freed[id] = 1;
+    int *freed_flags = (int *) udata;
+    freed_flags[id] = 1;
 }
 
+/* In a dynamically allocated 5-cell pool, check that live values
+ * persist and unreachable values are swept as expected. */
 TEST basic_dynamic() {
     int zero_is_live = 1;
+    int basic_freed[] = {0,0,0,0,0};
     oscar *p = oscar_new(sizeof(link), 5, oscar_generic_mem_cb, NULL,
         mark_it_donny, &zero_is_live,
-        basic_free_hook, NULL);
+        basic_free_hook, basic_freed);
+    ASSERT(p);
+    unsigned int count = oscar_count(p);
     pool_id id = oscar_alloc(p);
     ASSERT_EQ(0, id);
     link *l = (link *) oscar_get(p, id);
@@ -58,36 +62,78 @@ TEST basic_dynamic() {
     ASSERT(l);
 
     /* Allocate a couple cells that aren't kept live, to force GC */
-    for (int i=0; i<5; i++) (void) oscar_alloc(p);
+    for (int i=0; i<count; i++) (void) oscar_alloc(p);
     id = oscar_alloc(p);
     ASSERT_EQ(4, id);
-    l1->n = id;                 /* [0] -> [1] -> [4], 2 is garbage */
+    l1->n = id;                 /* [0] -> [1] -> [n], 2 is garbage */
     
     /* Allocate a couple cells that aren't kept live, to force GC */
-    for (int i=0; i<5; i++) (void) oscar_alloc(p);
-    ASSERT_EQ(1, basic_test_freed[2]);
+    for (int i=0; i<count; i++) (void) oscar_alloc(p);
+    ASSERT_EQ(1, basic_freed[2]);
 
-    for (int i=0; i<5; i++) basic_test_freed[i] = 0;
+    for (int i=0; i<5; i++) basic_freed[i] = 0;
 
     zero_is_live = 0;           /* [0] is no longer root, all are garbage */
     oscar_force_gc(p);
 
     for (int i=0; i<5; i++) {
-        ASSERT_EQ(1, basic_test_freed[i]);
+        ASSERT_EQ(1, basic_freed[i]);
     }
     
     oscar_free(p);
     PASS();
 }
 
-#if 0
-/* This test is not yet complete... */
+static void count_coll(oscar *pool, pool_id id, void *udata) {
+    int *collections = (int *) udata;
+    assert(id == 0);
+    (*collections)++;
+}
+
+/* In the smallest possible valid pool, check that the cell count is 1
+ * and repeatedly allocating keeps sweeping and returning the same cell
+ * (without corrupting anything interally, etc.). */
+TEST fixed_small() {
+    int zero_is_live = 0;
+    int collections = 0;
+
+#define SZ (88 /* sizeof(oscar) */ + 2*sizeof(link))
+    static char raw_mem[SZ];
+    oscar *p = oscar_new_fixed(sizeof(link), SZ, raw_mem,
+        mark_it_donny, &zero_is_live, count_coll, &collections);
+    ASSERTm("no oscar *", p);
+#undef SZ
+    unsigned int count = oscar_count(p);
+    ASSERT_EQ(1, count);
+
+    /* Repeatedly alloc; should get cell 0 every time, because it
+     * isn't marked live and should be collected. */
+    for (int i=0; i<50; i++) {
+        pool_id id = oscar_alloc(p); /* -> garbage */
+        ASSERT_EQ(0, id);
+    }
+
+    /* cell 0 should have been swept every time, since it was never live. */
+    ASSERT_EQ(50, collections);
+
+    oscar_free(p);
+    PASS();
+}
+
+/* Roughly the same as basic_dynamic, but build the GC pool
+ * in statically allocated memory. */
 TEST basic_static() {
     int zero_is_live = 1;
-    static char raw_mem[1024];
-    oscar *p = oscar_new_fixed(sizeof(link), 5, oscar_generic_mem_cb, NULL,
+#define SZ (88 + 10*sizeof(link))
+    int basic_freed[SZ];
+    static char raw_mem[SZ];
+    oscar *p = oscar_new_fixed(sizeof(link), SZ, raw_mem,
         mark_it_donny, &zero_is_live,
-        basic_free_hook, NULL);
+        basic_free_hook, basic_freed);
+    ASSERTm("no oscar *", p);
+    bzero(basic_freed, SZ * sizeof(int));
+#undef SZ
+    unsigned int count = oscar_count(p);
     pool_id id = oscar_alloc(p);
     ASSERT_EQ(0, id);
     link *l = (link *) oscar_get(p, id);
@@ -110,34 +156,69 @@ TEST basic_static() {
     ASSERT(l);
 
     /* Allocate a couple cells that aren't kept live, to force GC */
-    for (int i=0; i<5; i++) (void) oscar_alloc(p);
+    for (int i=0; i<count; i++) (void) oscar_alloc(p);
     id = oscar_alloc(p);
-    ASSERT_EQ(4, id);
-    l1->n = id;                 /* [0] -> [1] -> [4], 2 is garbage */
-    
+    l1->n = id;                 /* [0] -> [1] -> [n], 2 is garbage */
+   
     /* Allocate a couple cells that aren't kept live, to force GC */
-    for (int i=0; i<5; i++) (void) oscar_alloc(p);
-    ASSERT_EQ(1, basic_test_freed[2]);
+    for (int i=0; i<count; i++) (void) oscar_alloc(p);
+    ASSERT_EQ(1, basic_freed[2]);
 
-    for (int i=0; i<5; i++) basic_test_freed[i] = 0;
+    for (int i=0; i<5; i++) basic_freed[i] = 0;
 
     zero_is_live = 0;           /* [0] is no longer root, all are garbage */
     oscar_force_gc(p);
 
     for (int i=0; i<5; i++) {
-        ASSERT_EQ(1, basic_test_freed[i]);
+        ASSERT_EQ(1, basic_freed[i]);
     }
     
     oscar_free(p);
     PASS();
 }
-#endif
+
+/* Make a linked list of (limit) cells, growing the GC pool on demand, then
+ * set 0 to unreachable and force a collection. */
+TEST growth() {
+    int zero_is_live = 1;
+    int limit = 100000;
+    int freed[2*limit];         /* 2x to not segfault due to growth past limit */
+    oscar *p = oscar_new(sizeof(link), 2, oscar_generic_mem_cb, NULL,
+        mark_it_donny, &zero_is_live,
+        basic_free_hook, freed);
+    ASSERT(p);
+
+    unsigned int count = oscar_count(p);
+    ASSERT_EQ(2, count);
+
+    pool_id id = oscar_alloc(p);
+    ASSERT_EQ(0, id);
+    pool_id last_id = id;
+
+    for (int i=0; i<limit; i++) {
+        pool_id id = oscar_alloc(p);
+        ASSERTm("allocation failed", id != POOL_ID_NONE);
+        link *last = (link *) oscar_get(p, last_id);
+        ASSERT(last);
+        ASSERT_EQ(0, last->n);         /* [n] -> NULL */
+        last->n = id;
+        last_id = id;
+        ASSERT(oscar_count(p) >= i);
+    }
+
+    zero_is_live = 0;
+    oscar_force_gc(p);          /* GC & ensure all are freed */
+    for (int i=0; i<limit; i++) ASSERT_EQ(1, freed[i]);
+
+    oscar_free(p);
+    PASS();
+}
 
 SUITE(suite) {
     RUN_TEST(basic_dynamic);
-#if 0
+    RUN_TEST(fixed_small);
     RUN_TEST(basic_static);
-#endif
+    RUN_TEST(growth);
 }
 
 GREATEST_MAIN_DEFS();

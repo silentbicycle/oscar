@@ -77,7 +77,7 @@ int oscar_force_gc(oscar *pool);
  * it will be freed; if a free_cb is defined, it will be called on every cell. */
 void oscar_free(oscar *pool);
 
-void oscar_dump_mark_bits(oscar *pool);
+void oscar_dump_internals(oscar *pool);
 
 
 #endif
