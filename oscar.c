@@ -153,9 +153,11 @@ void *oscar_get(oscar *pool, pool_id id) {
     return p;
 }
 
-static int is_marked(char *markbits, pool_id id) {
-    unsigned int byte = markbits[id / 8];
+static int check_and_clear_mark(char *markbits, pool_id id) {
+    unsigned int byte_id = id / 8;
+    unsigned int byte = markbits[byte_id];
     char bit = 1 << (id % 8);
+    markbits[byte_id] &= ~bit;
     LOG("id %d -> byte %d, bit %d -> %d\n", id, byte, bit, byte & bit);
     return byte & bit;
 }
@@ -164,7 +166,7 @@ static pool_id find_unmarked(oscar *pool, pool_id start) {
     pool_id id = 0;
     for (id = start; id < pool->count; id++) {
         LOG(" -- find_unmarked, %d / %d\n", id, pool->count);
-        if (!is_marked(pool->markbits, id)) {
+        if (!check_and_clear_mark(pool->markbits, id)) {
             char *p = pool->raw + (pool->cell_sz * id);
             if (pool->free_cb) pool->free_cb(pool, id, pool->free_udata);
             LOG("-- sweeping & returning unmarked cell, %d\n", id);
@@ -217,10 +219,8 @@ pool_id oscar_alloc(oscar *pool) {
     unsigned int three_quarters = 0;
     if (id != OSCAR_ID_NONE) return id;
 
-    /* Clear marks and re-mark */
     LOG(" -- about to mark\n");
     pool->marked = 0;
-    bzero(pool->markbits, (pool->count / 8) + 1);
     if (pool->mark_cb(pool, pool->mark_udata) < 0) return OSCAR_ID_NONE;
 
     /* If >= 75% of the cells were marked, try to grow the pool (if possible)
@@ -251,7 +251,7 @@ int oscar_force_gc(oscar *pool) {
     if (pool->mark_cb(pool, pool->mark_udata) < 0) return -1;
 
     for (id = 0; id < pool->count; id++) {
-        if (!is_marked(pool->markbits, id)) {
+        if (!check_and_clear_mark(pool->markbits, id)) {
             if (pool->free_cb) pool->free_cb(pool, id, pool->free_udata);
             LOG("-- sweeping unmarked cell, %d\n", id);
         }
