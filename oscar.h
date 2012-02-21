@@ -3,8 +3,8 @@
 
 /* Unsigned int for pool IDs, can be defined at compile-time
  * to use <4 bytes. */
-#ifdef POOL_ID_TYPE
-typedef POOL_ID_TYPE pool_id;
+#ifdef OSCAR_POOL_ID_TYPE
+typedef OSCAR_POOL_ID_TYPE pool_id;
 #else
 typedef uint32_t pool_id;
 #endif
@@ -13,7 +13,7 @@ typedef uint32_t pool_id;
 typedef struct oscar oscar;
 
 /* Special sentinel value for "no ID". */
-#define POOL_ID_NONE ((pool_id) -1)
+#define OSCAR_ID_NONE ((pool_id) -1)
 
 /* Function to mark the current root set, using oscar_mark on each
  * reachable pool ID. The UDATA is passed along from when the pool
@@ -51,10 +51,8 @@ oscar *oscar_new(unsigned int cell_sz, unsigned int start_count,
     oscar_mark_cb *mark_cb, void *mark_udata,
     oscar_free_cb *free_cb, void *free_udata);
 
-/* Get the number of  */
+/* Get the current cell count. */
 unsigned int oscar_count(oscar *pool);
-
-unsigned int oscar_freed(oscar *pool);
 
 /* Mark the ID'th cell as reachable. */
 void oscar_mark(oscar *pool, pool_id id);
@@ -76,8 +74,5 @@ int oscar_force_gc(oscar *pool);
 /* Free the pool and its contents. If the memory was dynamically allocated,
  * it will be freed; if a free_cb is defined, it will be called on every cell. */
 void oscar_free(oscar *pool);
-
-void oscar_dump_internals(oscar *pool);
-
 
 #endif

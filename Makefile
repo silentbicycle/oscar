@@ -1,14 +1,22 @@
 PROJECT=	test_oscar
-CFLAGS=		-Wall -pedantic -std=c99 -g -O2
+CFLAGS=		-Wall -pedantic -g -O2
+
+# Build the static library with 'ar' or 'libtool'?
+MAKE_LIB=	ar rcs
+#MAKE_LIB=	libtool -static -o
+
+# -----
 
 all: ${PROJECT}
 
-${PROJECT}: oscar.c test.o
-	${CC} -o ${PROJECT} oscar.c test.o ${CFLAGS} ${LDFLAGS}
+# Compile test.c (only) with -std=c99.
+${PROJECT}: liboscar.a test.c
+	${CC} -o ${PROJECT} test.c ${CFLAGS} -std=c99 ${LDFLAGS} liboscar.a
 
-test.c: oscar.h
+liboscar.a: oscar.o
+	${MAKE_LIB} liboscar.a oscar.o
 
-test.o: test.c
+oscar.c: oscar.h
 
 clean:
-	rm -f *.o ${PROJECT}
+	rm -f *.o *.a ${PROJECT}

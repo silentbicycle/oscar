@@ -1,3 +1,19 @@
+/* 
+ * Copyright (c) 2012 Scott Vokes <vokes.s@gmail.com>
+ *  
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *  
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -56,12 +72,13 @@ static oscar *new_pool(unsigned int cell_sz, unsigned int count,
     p->markbits = raw + (cell_sz * count);
 
     if (1) {                    /* ensure regions don't overlap */
+        int i = 0;
         char *p_end = (char *) p + sizeof(*p);
         char *raw_end = raw + (cell_sz * count);
         char *markbits_end = p->markbits + (count / 8) + 1;
         LOG("p: %p p_end: %p\n", (void *) p, p_end);
         LOG("raw: %p raw_end: %p\n", raw, raw_end);
-        for (int i=0; i<count; i++) {
+        for (i=0; i<count; i++) {
             char *cell = (char *) oscar_get(p, i);
             LOG("cell[%d] = %p ~ %p\n", i, cell, cell + cell_sz - 1);
         }
@@ -170,7 +187,7 @@ static pool_id find_unmarked(oscar *pool, pool_id start) {
             return id;
         }
     }
-    return POOL_ID_NONE;
+    return OSCAR_ID_NONE;
 }
 
 /* Grow the GC pool, zeroing the new memory and moving the old mark bits. */
@@ -180,15 +197,16 @@ static int grow_pool(oscar *p) {
     unsigned int old_ct = p->count;
     char *old_raw = p->raw;
     unsigned int old_markbits_offset = p->markbits - old_raw;
+    unsigned int count = 0, old_mark_bytes = 0;
 
     /* If successful, realloc will copy the old mark bits, but
      * won't move them to the intended new p->markbits. */
     char *new_raw = p->mem_cb(old_raw, p->sz, new_sz, p->mem_udata);
     if (new_raw == NULL) return -1; /* alloc fail */
     
-    unsigned int count = new_sz / cell_sz;
+    count = new_sz / cell_sz;
     while (count * cell_sz + (count / 8 + 1) > new_sz) count--;
-    unsigned int old_mark_bytes = (old_ct /8) + 1;
+    old_mark_bytes = (old_ct /8) + 1;
     p->markbits = new_raw + (cell_sz * count);
 
     /* Copy and clear the old mark bits. (They're cleared because otherwise
@@ -207,28 +225,28 @@ static int grow_pool(oscar *p) {
 
 /* Get a fresh pool ID. Can cause a mark/sweep pass, and may cause
  * the pool's backing cells to move in memory (making any pointers stale).
- * Returns -1 on error. */
+ * Returns OSCAR_ID_NONE (-1) on error. */
 pool_id oscar_alloc(oscar *pool) {
     pool_id id = find_unmarked(pool, pool->sweep);
-    if (id != POOL_ID_NONE) return id;
+    unsigned int three_quarters = 0;
+    if (id != OSCAR_ID_NONE) return id;
 
     /* Clear marks and re-mark */
     LOG(" -- about to mark\n");
     pool->marked = 0;
     bzero(pool->markbits, (pool->count / 8) + 1);
-    if (pool->mark_cb(pool, pool->mark_udata) < 0) return POOL_ID_NONE;
+    if (pool->mark_cb(pool, pool->mark_udata) < 0) return OSCAR_ID_NONE;
 
     /* If >= 75% of the cells were marked, try to grow the pool (if possible)
      * to avoid garbage collection churn.
      * Note: does not attempt to shrink, because the pool is not compacted. */
-    unsigned int three_quarters;
     three_quarters = (pool->count < 4 ? 1 : pool->count - (pool->count >> 2));
     LOG(" -- marked: %u, 3/4: %u\n", pool->marked, three_quarters);
     if (pool->mem_cb && pool->marked >= three_quarters) {
         LOG(" -- trying to grow\n");
         if (grow_pool(pool) < 0) {
             LOG(" -- growth failed\n");
-            return POOL_ID_NONE;
+            return OSCAR_ID_NONE;
         }
     }
 
@@ -240,12 +258,13 @@ pool_id oscar_alloc(oscar *pool) {
 /* Force a full GC mark/sweep. If free_cb is defined, it will be called
  * on every swept cell. Returns <0 on error. */
 int oscar_force_gc(oscar *pool) {
+    pool_id id = 0;
     LOG(" -- forcing GC\n");
     pool->marked = 0;
     bzero(pool->markbits, (pool->count / 8) + 1);
     if (pool->mark_cb(pool, pool->mark_udata) < 0) return -1;
 
-    for (pool_id id = 0; id < pool->count; id++) {
+    for (id = 0; id < pool->count; id++) {
         if (!is_marked(pool->markbits, id)) {
             if (pool->free_cb) pool->free_cb(pool, id, pool->free_udata);
             LOG("-- sweeping unmarked cell, %d\n", id);
@@ -268,15 +287,5 @@ void oscar_free(oscar *pool) {
     if (pool->mem_cb) {  /* Don't free if using a fixed-size allocator. */
         pool->mem_cb(pool->raw, pool->sz, 0, pool->mem_udata);
         pool->mem_cb(pool, sizeof(*pool), 0, pool->mem_udata);
-    }
-}
-
-void oscar_dump_internals(oscar *p) {
-    printf("cell_sz: %u, count: %u, marked: %u, sz: %u, sweep: %u\n",
-        p->cell_sz, p->count, p->marked, p->sz, (unsigned int) p->sweep);
-
-    unsigned int id = 0;
-    for (id = 0; id < p->count; id++){
-        printf("%d: %d\n", id, is_marked(p->markbits, id) ? 1 : 0);
     }
 }

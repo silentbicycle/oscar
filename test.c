@@ -197,7 +197,7 @@ TEST growth() {
 
     for (int i=0; i<limit; i++) {
         pool_id id = oscar_alloc(p);
-        ASSERTm("allocation failed", id != POOL_ID_NONE);
+        ASSERTm("allocation failed", id != OSCAR_ID_NONE);
         link *last = (link *) oscar_get(p, last_id);
         ASSERT(last);
         ASSERT_EQ(0, last->n);         /* [n] -> NULL */
