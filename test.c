@@ -14,7 +14,7 @@ typedef struct link {
     pool_id n;                  /* next */
 } link;
 
-static int mark_it_donny(oscar *p, void *udata) {
+static int mark_from_zero(oscar *p, void *udata) {
     int *zero_is_live = (int *) udata;
 
     if (*zero_is_live) {
@@ -44,7 +44,7 @@ TEST basic_dynamic() {
     int zero_is_live = 1;
     int basic_freed[] = {0,0,0,0,0};
     oscar *p = oscar_new(sizeof(link), 5, oscar_generic_mem_cb, NULL,
-        mark_it_donny, &zero_is_live,
+        mark_from_zero, &zero_is_live,
         basic_free_hook, basic_freed);
     ASSERT(p);
     unsigned int count = oscar_count(p);
@@ -108,7 +108,7 @@ TEST fixed_small() {
 #define SZ (88 /* sizeof(oscar) */ + 2*sizeof(link))
     static char raw_mem[SZ];
     oscar *p = oscar_new_fixed(sizeof(link), SZ, raw_mem,
-        mark_it_donny, &zero_is_live, count_coll, &collections);
+        mark_from_zero, &zero_is_live, count_coll, &collections);
     ASSERTm("no oscar *", p);
 #undef SZ
     unsigned int count = oscar_count(p);
@@ -136,7 +136,7 @@ TEST basic_static() {
     int basic_freed[SZ];
     static char raw_mem[SZ];
     oscar *p = oscar_new_fixed(sizeof(link), SZ, raw_mem,
-        mark_it_donny, &zero_is_live,
+        mark_from_zero, &zero_is_live,
         basic_free_hook, basic_freed);
     ASSERTm("no oscar *", p);
     bzero(basic_freed, SZ * sizeof(int));
@@ -192,7 +192,7 @@ TEST growth() {
     int limit = 100000;
     int freed[2*limit];         /* 2x to not segfault due to growth past limit */
     oscar *p = oscar_new(sizeof(link), 2, oscar_generic_mem_cb, NULL,
-        mark_it_donny, &zero_is_live,
+        mark_from_zero, &zero_is_live,
         basic_free_hook, freed);
     ASSERT(p);
 
