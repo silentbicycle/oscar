@@ -247,13 +247,12 @@ int oscar_force_gc(oscar *pool) {
 
     for (pool_id id = 0; id < pool->count; id++) {
         if (!is_marked(pool->markbits, id)) {
-            char *p = pool->raw + (pool->cell_sz * id);
             if (pool->free_cb) pool->free_cb(pool, id, pool->free_udata);
             LOG("-- sweeping unmarked cell, %d\n", id);
-            bzero(p, pool->cell_sz);
         }
     }
     pool->sweep = 0;
+    bzero(pool->raw, pool->sz);
     return 0;
 }
 
