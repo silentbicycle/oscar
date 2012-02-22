@@ -184,13 +184,47 @@ TEST basic_static(int pad) {
     PASS();
 }
 
+/* Write '\0'..(pad-1) in the pad bytes after the link. */
+static void scribble(link *l, int pad) {
+    if (pad == 0) return;
+    char *raw = (char *) l + sizeof(*l);
+    for (int i=0; i<pad; i++) {
+        raw[i] = i % 256;
+    }
+}
+
+/* Check the padding bytes after the link for consistency. */
+static int check(oscar *p, pool_id root, int pad) {
+    pool_id id = root;
+    do {
+        link *l = (link *) oscar_get(p, id);
+        if (l == NULL) { fprintf(stderr, "NULL link\n"); return 0; }
+        intptr_t data = (intptr_t) l->d;
+        if (data != id) {
+            fprintf(stderr, "id mismatch\n");
+            return 0;
+        }
+        char *raw = (char *) l + sizeof(*l);
+        for (int i=0; i<pad; i++) {
+            if (raw[i] != i % 256) {
+                fprintf(stderr, "corruption, pad %d, id %d, %d: %d\n",
+                    pad, id, i, raw[i]);
+                return 0;
+            }
+        }
+        id = l->n;
+    } while (id != 0);
+    return 1;
+}
+
 /* Make a linked list of (limit) cells, growing the GC pool on demand, then
  * set 0 to unreachable and force a collection. */
-TEST growth() {
+TEST growth(int pad) {
     int zero_is_live = 1;
     int limit = 100000;
     int freed[2*limit];         /* 2x to not segfault due to growth past limit */
-    oscar *p = oscar_new(sizeof(link), 2, oscar_generic_mem_cb, NULL,
+    oscar *p = oscar_new(sizeof(link) + pad, 2,
+        oscar_generic_mem_cb, NULL,
         mark_from_zero, &zero_is_live,
         basic_free_hook, freed);
     ASSERT(p);
@@ -206,12 +240,21 @@ TEST growth() {
         pool_id id = oscar_alloc(p);
         ASSERTm("allocation failed", id != OSCAR_ID_NONE);
         link *last = (link *) oscar_get(p, last_id);
+        last->d = (void *) ((intptr_t) last_id);
+        scribble(last, pad);
         ASSERT(last);
         ASSERT_EQ(0, last->n);         /* [n] -> NULL */
         last->n = id;
         last_id = id;
         ASSERT(oscar_count(p) >= i);
     }
+
+    link *final = (link *) oscar_get(p, limit);
+    scribble(final, pad);
+    final->d = (void *) ((intptr_t) limit);
+    final->n = 0;
+
+    ASSERT_EQ(1, check(p, 0, pad));
 
     zero_is_live = 0;
     oscar_force_gc(p);          /* GC & ensure all are freed */
@@ -223,15 +266,12 @@ TEST growth() {
 
 SUITE(suite) {
     for (int i=0; i<8; i++) {
-        RUN_TESTp(basic_dynamic, i*sizeof(void*));
+        int pad = i*sizeof(void *);
+        RUN_TESTp(basic_dynamic, pad);
+        RUN_TESTp(basic_static, pad);
+        RUN_TESTp(growth, pad);
     }
-
     RUN_TEST(fixed_small);
-
-    for (int i=0; i<8; i++) {
-        RUN_TESTp(basic_static, i*sizeof(void *));
-    }
-    RUN_TEST(growth);
 }
 
 GREATEST_MAIN_DEFS();
