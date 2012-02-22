@@ -40,10 +40,10 @@ static void basic_free_hook(oscar *pool, pool_id id, void *udata) {
 
 /* In a dynamically allocated 5-cell pool, check that live values
  * persist and unreachable values are swept as expected. */
-TEST basic_dynamic() {
+TEST basic_dynamic(int pad) {
     int zero_is_live = 1;
     int basic_freed[] = {0,0,0,0,0};
-    oscar *p = oscar_new(sizeof(link), 5, oscar_generic_mem_cb, NULL,
+    oscar *p = oscar_new(sizeof(link) + pad, 5, oscar_generic_mem_cb, NULL,
         mark_from_zero, &zero_is_live,
         basic_free_hook, basic_freed);
     ASSERT(p);
@@ -130,17 +130,16 @@ TEST fixed_small() {
 
 /* Roughly the same as basic_dynamic, but build the GC pool
  * in statically allocated memory. */
-TEST basic_static() {
+TEST basic_static(int pad) {
     int zero_is_live = 1;
-#define SZ (88 + 10*sizeof(link))
+    int SZ = (88 + 10*(sizeof(link) + pad));
     int basic_freed[SZ];
-    static char raw_mem[SZ];
+    char raw_mem[SZ];
     oscar *p = oscar_new_fixed(sizeof(link), SZ, raw_mem,
         mark_from_zero, &zero_is_live,
         basic_free_hook, basic_freed);
     ASSERTm("no oscar *", p);
     bzero(basic_freed, SZ * sizeof(int));
-#undef SZ
     unsigned int count = oscar_count(p);
     pool_id id = oscar_alloc(p);
     ASSERT_EQ(0, id);
@@ -223,9 +222,15 @@ TEST growth() {
 }
 
 SUITE(suite) {
-    RUN_TEST(basic_dynamic);
+    for (int i=0; i<8; i++) {
+        RUN_TESTp(basic_dynamic, i*sizeof(void*));
+    }
+
     RUN_TEST(fixed_small);
-    RUN_TEST(basic_static);
+
+    for (int i=0; i<8; i++) {
+        RUN_TESTp(basic_static, i*sizeof(void *));
+    }
     RUN_TEST(growth);
 }
 
