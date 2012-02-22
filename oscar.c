@@ -8,6 +8,8 @@
 
 #include "oscar.h"
 
+/* Note: this uses __VA_ARGS__ (from C99), but the rest only
+ * depends on C89. LOG(...) could be safely removed. */
 #define DEBUG 0
 #define LOG(...) { if (DEBUG) fprintf(stderr, __VA_ARGS__); }
 
@@ -113,7 +115,7 @@ oscar *oscar_new_fixed(unsigned int cell_sz, unsigned int bytes, char *memory,
 
 /* Init a garbage-collected pool of START_COUNT cells, each CELL_SZ bytes.
  * For the various callbacks, see their typedefs.
- * Returns NULL on error. */
+ * Returns NULL on error (allocation failure or NULL callbacks). */
 oscar *oscar_new(unsigned int cell_sz, unsigned int start_count,
                  oscar_memory_cb *mem_cb, void *mem_udata,
                  oscar_mark_cb *mark_cb, void *mark_udata,
@@ -148,7 +150,10 @@ cleanup:
 
 unsigned int oscar_count(oscar *pool) { return pool->count; }
 
-/* Mark the ID'th cell as reachable. */
+/* Mark the ID'th cell as reachable.
+ * TODO If this were changed to return a new pool_id, would
+ * that be sufficient to permit generational GC? The user's
+ * mark_cb could update references while marking. */
 void oscar_mark(oscar *pool, pool_id id) {
     unsigned int byte = id / 8;
     char bit = 1 << (id % 8);
@@ -178,6 +183,9 @@ static pool_id find_unmarked(oscar *pool, pool_id start) {
     pool_id id = 0;
     for (id = start; id < pool->count; id++) {
         LOG(" -- find_unmarked, %d / %d\n", id, pool->count);
+
+        /* TODO available mark bits could be checked and swept a byte
+         * or more at a time, amortizing the cost of the bit ops. */
         if (!check_and_clear_mark(pool->markbits, id)) {
             char *p = pool->raw + (pool->cell_sz * id);
             if (pool->free_cb) pool->free_cb(pool, id, pool->free_udata);
@@ -223,7 +231,7 @@ static int grow_pool(oscar *p) {
     return 0;
 }
 
-/* Get a fresh pool ID. Can cause a mark/sweep pass, and may cause
+/* Get a fresh pool ID. Can cause a blocking sweep pass, and may cause
  * the pool's backing cells to move in memory (making any pointers stale).
  * Returns OSCAR_ID_NONE (-1) on error. */
 pool_id oscar_alloc(oscar *pool) {
@@ -233,6 +241,10 @@ pool_id oscar_alloc(oscar *pool) {
 
     LOG(" -- about to mark\n");
     pool->marked = 0;
+
+    /* Since the mark_cb is a user-supplied callback, it could potentially
+     * interleave the marking step with other work that doesn't disrupt
+     * the pool's data. Dangerous, but worth noting. */
     if (pool->mark_cb(pool, pool->mark_udata) < 0) return OSCAR_ID_NONE;
 
     /* If >= 75% of the cells were marked, try to grow the pool (if possible)
