@@ -8,4 +8,4 @@ The GC should be reasonably efficient (though it is not generational). Its tests
 
 The documentation is inside `oscar.h`. For usage examples, see the test suite (`test.c`).
 
-For more information about garbage collectors, I recommend Paul R. Wilson's ["Uniprocessor Garbage Collection Techniques"](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.47.2438) and Jones & Lins' _Garbage Collection: Algorithms for Automatic Dynamic Memory Management_.
+For more information about garbage collectors, I recommend Paul R. Wilson's ["Uniprocessor Garbage Collection Techniques"](http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.47.2438), Jones, Hosking, and Moss's _The Garbage Collection Handbook_, and Jones & Lins' _Garbage Collection: Algorithms for Automatic Dynamic Memory Management_.
